@@ -1,0 +1,580 @@
+---
+title: "STATISTICS II - The corrosive effect of corruption on trust in politicians: Evidence from a natural experiment"
+author: "gautamhimanshi"
+date: "`r format(Sys.time(), '%B %d, %Y | %H:%M:%S | %Z')`"
+output:
+  html_document:
+    code_folding: hide
+    df_print: paged
+    highlight: tango
+    number_sections: no
+    theme: cosmo
+    toc: no
+---
+
+<style>
+div.answer {background-color:#f3f0ff; border-radius: 5px; padding: 20px;}
+</style>
+
+```{r, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,
+                      eval = TRUE,
+                      error = FALSE,
+                      message = FALSE,
+                      warning = FALSE,
+                      comment = NA)
+```
+
+
+```{r, include = F}
+# LOAD THE PACKAGES YOU ARE USING IN THIS CODE CHUNK library(nameofpackage)
+library(stargazer)
+library(ggplot2)
+library(readstata13)
+library(dplyr)
+library(fastDummies)
+library(knitr)
+library(kableExtra)
+library(KernSmooth)
+library(ggalt)
+library(ggthemes)
+#library(cem)
+library(rdd)
+library(plm)
+library(haven)
+library(lubridate)
+library(AER)
+library(sjlabelled)
+
+set.seed(42) # for consistent results
+```
+
+## Introduction
+
+<div class = "answer"> 
+Fact Sheet
+
+In this paper, the authors explore whether there exists a negative causal effect of real-world corruption scandals on trust in politicians. Additionally, they study if the impact of such scandals decays over time, and if these scandals have a weaker impact on the supporters of the party that was involved in the corruption activities.
+Data: In the Barcenas case, the media released the information on scandal on 31st January 2013. The data used for conducting further analysis is from the sixth round of European Social Survey (ESS), which was conducted in Spain between 23 January, 2013 to 12 May 2013. The sample was split such that people interviewed before the uncovering of the scandal are the control group, and those interviewed after are the treatment group.
+Methods: The authors use comparison in means, OLS estimation (with controls for a potential reachability bias), and additional robustness checks, such as matching and a Regression Discontinuity Design.
+Results: Through the analysis, the authors found that - (a) the scandal significantly reduces the trust in politicians, (b) the effect decreases as time passes, and (c) the partisan preferences did not affect the loss of trust.
+
+</div> 
+
+## Figure 1
+
+<div class = "answer"> 
+Figure 1 uses the Google search trends data and summarizes the relative frequencies of Google searches about the scandal. This was done to establish if the the release of documents by El Pais on 31st January can be used as an exposure variable for treatment assignment.
+</div> 
+
+```{r}
+setwd('/Users/himanshigautam/Desktop/Hertie/Sem2/Stats2/Replication/Replication-paper/dataverse_files')
+
+gtrends_df <- read_dta("g_trends.dta")
+
+ggplot(gtrends_df, 
+         aes(x = day, 
+             y = caso_barcenas_searches)) + 
+geom_line(data = gtrends_df, 
+            color = "#696969", # color lines
+            size = 1) +
+geom_vline(xintercept = gtrends_df$day[31], linetype = "dotted", color = "red", size = 1) +
+labs(title = "Google trends for the search 'caso barcenas'",
+       x = "Month",
+       y = "Relative Google Searches") +
+theme_minimal()           
+```
+<div class = "answer"> 
+It is clear from the figure that the maximum peak in searches reached when El Pais leaked the documents on 31st January. The figure also shows a small peak in the searches when El Mundo released news about the scandal, but one can clearly see the searches decreasing and then reaching a maximum peak when El Pais released the news of scandal along with bookkeeping documents.
+</div> 
+
+## Data Management - Recoding and creating dummies for detailed analysis
+
+```{r}
+ESS_df <- read_dta("ess_6_spain.dta") #load data
+
+#create an exposure variable to assign units to exposure to treatment
+ESS1_df <- ESS_df %>% dplyr::mutate(D_exposure_barcenas = ifelse(inwmms == 1 & inwdds < 31,0,
+                                                                 ifelse(inwmms == 1 & inwdds == 31, 1,
+                                                                        ifelse(inwmms == 2 & inwdds < 29, 1, NA))))
+
+#create time variable for the month of January and February
+ESS1_df <- ESS1_df %>% dplyr::mutate(time = ifelse(D_exposure_barcenas == "NA", NA,
+                                                   ifelse(D_exposure_barcenas == 0, (inwdds - 31),
+                                                          ifelse(inwdds == 31,0,inwdds))))
+                                     
+#create time variable for whole survey period
+ESS1_df <- ESS1_df %>% dplyr::mutate(time_whole = ifelse(inwmms==3, 28+inwdds,
+                                                        ifelse(inwmms==4, 59+inwdds,
+                                                              ifelse(inwmms==5, 89+inwdds,time))))
+                                     
+#Alternative D_exposure_barcenas variable considering the whole survey fieldwork (to study decay of the D_exposure_barcenas effect)
+ESS1_df <- ESS1_df %>% dplyr::mutate(treatment1 = ifelse(inwmms == 1 & inwdds < 31, 0,
+                                                        ifelse(inwmms > 1, 1,
+                                                              ifelse(inwmms == 1 & inwdds == 31, 1, 1))))
+                                     
+#create time variable with positive values for the whole fieldwork period
+ESS1_df <- ESS1_df %>% dplyr::mutate(fieldwork_time = time_whole + 8)
+
+#create dummies for party voted 
+ESS1_df <- ESS1_df %>% dplyr::mutate(party_voted = prtvtces)
+
+#creates new categories for types of employment status 
+
+ESS1_df <- ESS1_df %>% dplyr::mutate(mnactic = as.numeric(mnactic))
+
+ESS1_df <- ESS1_df %>% dplyr::mutate(employment = ifelse(mnactic == 4, 3,
+                                                        ifelse(mnactic == 6, 5,
+                                                              ifelse(mnactic == 8, 5, mnactic))))
+                                     
+ESS1_df <- ESS1_df %>% dplyr::mutate(employment = ifelse(employment == 1, "Paid Work",
+                                                        ifelse(employment == 2, "In education",
+                                                              ifelse(employment == 3, "Unemployed", 
+                                                                     ifelse(employment == 5, "Out of labor market",
+                                                                                    ifelse(employment == 9, "Other", employment))))))
+                                     
+ESS1_df <- ESS1_df %>% dplyr::mutate(activity_rec_ = ifelse(employment == "Paid Work", "emp_paid_work",
+                                                        ifelse(employment == "In education", "emp_in_education",
+                                                              ifelse(employment == "Unemployed", "emp_unemployed",
+                                                                     ifelse(employment == "Out of labor market", "emp_out_labor",
+                                                                            ifelse(employment == "Other", "emp_other", employment))))))
+                                              
+#create election winner variable
+ESS1_df <- ESS1_df %>% dplyr::mutate(prtvtces = as.factor(prtvtces))
+ESS1_df <- ESS1_df %>% dplyr::mutate(election_winner = ifelse(prtvtces == 1, 1, 0))
+ESS1_df <- ESS1_df %>% dplyr::mutate(election_winner_1 = election_winner)
+ESS1_df$election_winner[is.na(ESS1_df$election_winner)] = 0
+
+```
+
+<div class = "answer"> 
+To analyze the effect of scandal on trust in politicians, the authors fitted three models with trust in politicians as the dependent variable. The trust is measured on an 11 point scale where 0 means none and 10 means absolute trust. The model1 just looks at effect of scandal on dependent variable, while model 2 and 3 also include controls for pre-treatment covariates and region fixed effects.
+</div> 
+
+##Regression - Table 2
+
+```{r}  
+
+ESS3_df <- unlabel(ESS1_df, verbose = FALSE)
+# Regressing effect of treatment on trust
+model1 <- lm(trstplt ~ D_exposure_barcenas, data = ESS1_df)
+
+# Region-fixed effects model with treatment and covariates on trust
+model2 <- plm(trstplt ~ D_exposure_barcenas + election_winner + gndr + eduyrs + agea + as.factor(employment), index="region", data = ESS3_df, model="within")
+
+# Region-fixed effects model with treatment, interaction and covariates on trust
+model3 <- plm(trstplt ~ D_exposure_barcenas*election_winner + gndr + eduyrs + agea + as.factor(employment), index="region", data = ESS3_df, model="within")
+
+
+
+# Plotting all three regressions 
+stargazer::stargazer(model1, model2, model3, header=FALSE, type="text",
+                     title = "OLS regression models. Dependent variable: trust in politicians",
+                     style="asr",
+                     report="vc*s",
+                     digits = 3,
+                     keep = c("D_exposure_barcenas", 
+                              "election_winner", 
+                              "election_winner_alt", 
+                              "gndr", 
+                              "eduyrs", 
+                              "agea", 
+                              "employment", 
+                              "Constant"),
+                     omit.stat = c("ser", "f", "adj.rsq"),
+                     notes = "Standard errors in parentheses", 
+                     notes.align = "l",
+                     covariate.labels = c("D (Exposure to the Bárcenas scandal)",
+                                          "Election winner (wrong)", 
+                                          "Election winner (correct)", 
+                                          "Female", "Years of education", 
+                                          "Age", "Employment: In Education (Ref: In paid work)", 
+                                          "Employment: Unemployed (Ref: In paid work)", 
+                                          "Employment: Out of the labour market (Ref: In paid work)", 
+                                          "Employment: Other (Ref: In paid work)", 
+                                          "Election winner*D (wrong)",
+                                          "Election winner*D (correct)"),
+                     add.lines = list(c("Region Fixed Effects", "No", "Yes", "Yes")),
+                     model.names = FALSE,
+                     model.numbers = TRUE,
+                     dep.var.labels.include = FALSE,
+                     column.labels   = c("Model 1", "Model 2", "Model 3"),
+                     column.separate = c(3, 3)
+                     )
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+
+<div class = "answer"> 
+From the regression models, we can see that the respondents interviewed after El Pais released scandal documents, displayed on an average 0.48 points lower trust in politicians than the ones that were interviewed before the scandal news aired and the difference is statistically significant. Model 2 includes pre-treatment covariates and region fixed effects and in this model, the difference between the treatment and control group's trust on average is 0.45 points, which is also larger than the difference between election winners and losers, usually deemed as a common predictor of trust in politicians.
+</div> 
+
+##Figure 2
+
+<div class = "answer"> 
+As per the authors, figure 2 summarizes the levels of trust in politicians during January and February, to study how the scandal impacted the trust levels.
+</div> 
+
+```{r}  
+
+# Plot distributions of observations and smoothed Trust in politicians
+ggplot(ESS1_df) + 
+  geom_histogram(aes(x=time), binwidth=1, color="darkgrey", fill="lightgrey")  +
+geom_smooth(aes(x=time, y=trstplt * (100/2.4), shape=as.factor(D_exposure_barcenas), color=as.factor(D_exposure_barcenas)), method="glm", formula= y~poly(x, 5), position="identity") + 
+  scale_x_continuous(name = "Days to/since scandal (Jan 31 = 0)") + 
+  scale_y_continuous(name = "Number of Respondents", position="right", sec.axis = sec_axis(~./(100/2.4), name = "Trust in Politicians")) + 
+  theme(legend.title=element_blank(), legend.position = "bottom") +
+  scale_colour_discrete(labels=c("Trust in Politicians (D=0) ", " Trust in Politicians (D=1)"))+
+  labs(title = "Figure 2: Change in trust in Politicians at Time of Bárcenas scandal", 
+       caption = "Note: Trust in politicians is measured on a 0-10 scale, where 10 indicates complete trust.\n The Trust in Politicians graphs are estimated with a \nGLM quintic polynomial to resemble the authors' modelling.")
+
+```
+<div class = "answer"> 
+We can see that after 31st January, there is a substantial drop in the trust in politicians (can be seen with the discontinuity between red and blue lines in the graph).
+</div> 
+
+##Figure 3
+
+<div class = "answer"> 
+Figure 3 summarizes how treatment effect changes over time i.e. how the estimate for D(i) changes respondents interviewed after February, until May are incorporated in the treatment group.
+</div> 
+
+```{r}  
+## Calculation of effect of scandal over time (with corrected "election winner" variable).
+  
+### Replicate Figure 3 with correct election winner variable
+
+ESS2_df <- unlabel(ESS1_df, verbose = FALSE)
+
+ 
+
+## Create additional auxiliary vectors and dataframes outside of the dat_clean to focus on decay
+coef_lm_df <- data.frame(1)
+coef_lm_pvalue <- NULL
+time_lm <- NULL
+
+ 
+
+# Calculate linear models with changing time intervals 
+for (i in 0:19) {
+  add_days <- i*5
+  temp_subset <- subset(ESS2_df, subset = ESS2_df$time_whole < 7 + add_days)
+  temp_lm <- plm(trstplt ~ treatment1 + election_winner + gndr + eduyrs + agea + employment, index=c("region"),model="within", data = temp_subset)
+  coef_lm_df <- rbind(coef_lm_df, temp_lm$coefficients[1])
+  time_lm <- append(time_lm, 7+add_days)
+  coef_lm_pvalue <- append(coef_lm_pvalue, summary(temp_lm)$coefficients[1,4])
+}
+
+ 
+
+# Binding the results from above into a data frame that can be used for the plotting
+coef_lm_df <- coef_lm_df[-1,]
+coef_lm_df <- as.data.frame(cbind(coef_lm_df, coef_lm_pvalue, time_lm))
+colnames(coef_lm_df) <- c("Treatment_effect", "pvalues", "time")
+coef_lm_df$significant <- with(coef_lm_df, ifelse(pvalues < 0.05, 1, 0))
+
+ 
+
+# deleting the labels from the variables to be able to use plm()
+coef_lm_df_c <- unlabel(coef_lm_df, verbose = FALSE)
+coef_lm_df_c$significant <- as_factor(coef_lm_df_c$significant)
+
+ 
+
+# turn number of days since scandal into dates
+coef_lm_df_c$time
+coef_lm_df_c$dates <- as.Date(coef_lm_df_c$time-1, origin = '2013-01-31')
+
+ 
+
+## Plotting the effect of the scandal over time with correct 
+ggplot(data = coef_lm_df_c) + 
+  geom_point(aes(x=dates, y=Treatment_effect, shape=significant)) +
+  geom_line(aes(x=dates, y=Treatment_effect)) +
+  scale_y_reverse() +
+  scale_x_date(date_breaks = "5 day", date_labels = "%B %d") +
+  labs(title="Change in Treatment effect over Time with correct 'election_winner' variable", caption="\nNote: The x-axis indicates the last day included in the treatment group.") + ylab("Treatment effect (Coefficient D)") + 
+  theme(legend.position='bottom',axis.title.x = element_blank(), axis.text.x = element_text(angle = 45, hjust = 1), panel.background = element_rect(fill = "white", colour = "grey50"), panel.grid.major.y = element_line(colour = "grey90")) +
+  scale_shape_discrete(name=" Coefficient D ", breaks=c("1","0"), labels=c(" Signficant at 5%-level ", " Not significant at 5%-level "))  
+```
+
+<div class = "answer"> 
+We can see from the figure that the effect of the treatment (exposure to scandal) decreases over time as we move away from the date of release of scandal. This supports author's hypothesis that the scandal influenced citizen's trust in politicians to a greater extent in the weeks right after the scandal documents were released, as compared to a later time.
+</div> 
+
+## Table A9 :  RDD summary results. Dependent variable: trust in politicians.
+
+<div class = "answer"> 
+Instead of using OLS estimates to study the effect of Bárcenas scandal on individuals’ trust in politicians, we can produce estimates using Regression Discontinuity Design (RDD).
+</div>  
+
+```{r}
+
+# Running an RDD with the forcing variable time
+RD_est <- RDestimate(trstplt ~ time, data = ESS1_df, cutpoint = 0, kernel = "triangular")
+## Plotting RDD estimates
+
+ 
+
+# Bind DF with RDD results
+RDD_df <- data.frame(1,1,1) # initialize df
+RDD_df <- rbind(RDD_df, RD_est$est, RD_est$p, RD_est$se, RD_est$bw) #Pick interesting estimates
+RDD_df[-6,] <- round(RDD_df[-6,], digits=3) #round values to three digits
+RDD_df <- rbind(RDD_df, c("Trinagular", "Triangular", "Triangular"), as.character(RD_est$obs)) #include Kernel information
+RDD_df <- RDD_df[-1,] # Dump intialization row
+
+ 
+
+# Adjust names of rows and columns
+rownames(RDD_df) <- c("RD estimate", "p-value", "Standard error", "Bandwidth", "Kernel type", "Number of observations")
+colnames(RDD_df) <- c("Model-17 (Standard BW)", "Model-18 (Half BW)", "Model-19 (Double BW)")
+
+ 
+
+# Kable table for RDD estimation
+RDD_df %>%
+  kable(caption="Table A9: RDD summary results. Dependent variable: Trust in politicans", align = "l") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "responsive"), full_width=F, position="left") %>%
+  footnote(general = "Standard erroer clustered by region \n p-value < 0.001: significant at 0.1% level \n p-value < 0.01: significant at 1% level \n p-value < 0.05: significant at 5% level \n p-value < 0.1: significant at 10% level")
+
+```
+
+<div class = "answer"> 
+From the above RDD model, we observe that variance is higher with smaller bandwidth, and so the estimates are only significant at p<0.1 level. For all three bandwidths, the corruption scandal had negative effect on trust in politicians. Please note that while replicating, the standard error values in our table are slightly different from the original values in paper.  
+</div>
+
+##Extension
+
+<div class = "answer"> 
+As per Tom Powell (2019), "The idea that politicians and institutions are self-interested and seek only self-profit instead of to benefit the public good is what we understand as political cynicism". When corruption scandals are exposed, people often re-engage with the feeling of distrust and cynicism towards politics and political authorities. In order to extend the analysis to see the effect of scandal on people's trust in national and international institutions, I ran regression on variables -
+trstprl - trust in country's parliament, 
+trstlgl - trust in legal systems, 
+trstplc - trust in police, 
+trstprp - trust in political parties, 
+trstep - trust in european parliament, 
+trstun - trust in United Nations, 
+and discovered that we only get significant estimates for effect of corruption scandal on trust in police.
+
+Covariate analysis:
+
+To run more models on effect of corruption scandal on trust in police, we looked at the data and identified following covariates that should be controlled for:
+stfdem - How satisfied you are with democracy. People more satisfied with the state of democracy are likely to be more trusting of government institutions.
+aesfdrk - Feeling of safety while walking alone in local area after dark. (1 - 4 scale): Likely to be correlated to trust in police.
+crmvct - Respondent or household member victim of crime. If someone is a victim of crime, they expect more protection from police.
+gndr - Gender of respondent
+agea - Age of respondent
+eduyrs - Years of full-time education completed
+ipstrgv - important that government is strong and ensures safety. (0 - 10 scale) - People who expect more safety and protection from government are more likely to relate a corruption scandal to trust in police.
+tvpol - documents TV watching (news, political events, current affairs) hours. People who watch more political content on TV are more likely to form opinions on trust in institutions outside of a scandal too, these are also people who are more likely to know about the scandal also.
+employment - employment type of respondent
+ppltrst - How much you trust in people (0=10 scale). The tendency to trsut in people can affect how much people put trust in government institutions
+</div>
+
+```{r} 
+
+coord_dag <- list(
+  x = c(p = 2, d = -1, e = -2, y = 1, i = -1, s = 0, a=1, t=2, c=1, f=-1, g=-2),
+  y = c(p = -1, d = 0, e = 1, y = 0, i = 2, s = 1, a=2, t=1, c=-2, f=-2, g=-1)
+)
+
+our_dag <- ggdag::dagify(d ~ p,
+                         d ~ e,
+                         d ~ i,
+                         d ~ s,
+                         d ~ a,
+                         d ~ t,
+                         d ~ c,
+                         d ~ f,
+                         d ~ g,
+                         y ~ d,
+                         y ~ p,
+                         y ~ e,
+                         y ~ i,
+                         y ~ s,
+                         y ~ a,
+                         y ~ t,
+                         y ~ c,
+                         y ~ f,
+                         y ~ g,
+                         coords = coord_dag,
+                         labels = c("p" = "political news - \n TV watching hrs", 
+                                           "d" = "Exposure to scandal",
+                                           "e" = "education",
+                                           "y" = "trust in police",
+                                           "i" = "Imp that govt \n ensures safety",
+                                           "s" = "satisfaction with \n democracy",
+                                           "a" = "age",
+                                           "t" = "strust in people",
+                                           "c" = "victim of crime",
+                                           "f" = "feeling safe while \n walking in dark",
+                                           "g" = "gender"
+                                    ))
+
+ggdag::ggdag(our_dag,
+            text = FALSE,
+             use_labels = "label") + theme_void()
+```
+
+<div class = "answer"> 
+No we run t-tests on covariates to see the differences between control and treatment group.
+</div>
+
+```{r}
+ESS4_df <- unlabel(ESS1_df, verbose = FALSE)
+# Relevant covariates for t.test
+list_cov <- c("eduyrs", "gndr", "agea", "stfdem", "ipstrgv", "crmvct", "aesfdrk", "tvpol", "ppltrst", "polintr", "meprinf")
+
+ESS4_df %>% # our data frame
+  dplyr::summarize_at(list_cov, funs(list(broom::tidy(t.test(. ~ D_exposure_barcenas))))) %>% # sequentially run t-tests across all the covariates in the list_cov
+  purrr::map(1) %>% # maps into a list
+  dplyr::bind_rows(.id='variables') %>% # binds list into a single data frame and names the id column "variables" 
+  dplyr::select(variables, estimate1, estimate2, p.value) %>% # select only the names, group means, and p-values
+  dplyr::mutate_if(is.numeric, round, 3) %>% # round numeric variables to three places
+  knitr::kable(col.names = c("Variable", "Control (D_exposure_barcenas = 0)", "Treat (D_exposure_barcenas = 1)", "P value")) %>% # create kable table and rename headings
+  kableExtra::kable_styling() # style kable table for our knitted document
+```
+
+<div class = "answer"> 
+Through the balance table, we can see that the groups are rather balanced. We control for the covariates in our regression models to account for their confounding effects on treatment exposure and observed outcome. 
+
+In the next step, we run regression models with trust in police as our dependent variable and study effect of the scandal on trust in police. We also run a plm model with covariates identified in the previous steps. We also run a third model to see possible interaction effect between interest in politics and exposure to the scandal.
+</div>
+
+```{r}
+
+
+# Regressing effect of treatment on trust
+model4 <- lm(trstplc ~ D_exposure_barcenas, data = ESS4_df)
+
+# Region-fixed effects model with treatment and covariates on trust
+model5 <- plm(trstplc ~ D_exposure_barcenas + gndr + polintr + eduyrs + agea + stfdem + ipstrgv + crmvct + tvpol+ as.factor(employment), index="region", data = ESS4_df, model="within")
+
+
+# Region-fixed effects model with treatment, interaction and covariates on trust
+model6 <- plm(trstplc ~ D_exposure_barcenas*polintr + polintr + gndr + eduyrs + agea + stfdem + ipstrgv + crmvct + aesfdrk + tvpol + as.factor(employment), index="region", data = ESS4_df, model="within")
+
+
+# Plotting all three regressions 
+stargazer::stargazer(model4, model5, model6, header=FALSE, type="text",
+                     title = "OLS regression models. Dependent variable: trust in police",
+                     style="asr",
+                     report="vc*s",
+                     digits = 3,
+                     keep = c("D_exposure_barcenas", 
+                              "polintr", 
+                              "stfdem",
+                              "ipstrgv",
+                              "gndr", 
+                              "eduyrs", 
+                              "crmvct",
+                              "aesfdrk",
+                              "tvpol",
+                              "agea", 
+                              "employment", 
+                              "Constant"),
+                     omit.stat = c("ser", "f", "adj.rsq"),
+                     notes = "Standard errors in parentheses", 
+                     notes.align = "l",
+                     covariate.labels = c("D (Exposure to the Bárcenas scandal)",
+                                          "Interest in politics", 
+                                          "Satisfaction with democracy", 
+                                          "Important that government is strong and ensures safety",
+                                          "Female", "Years of education", "Victim of any crime in past",
+                                          "Feeling of safety of walking alone in local area after dark",
+                                          "TV watching, news/political affairs",
+                                          "Age", "Employment: In Education (Ref: In paid work)", 
+                                          "Employment: Unemployed (Ref: In paid work)", 
+                                          "Employment: Out of the labour market (Ref: In paid work)", 
+                                          "Employment: Other (Ref: In paid work)", 
+                                          "Political Interest*D (wrong)"),
+                     add.lines = list(c("Region Fixed Effects", "No", "Yes", "Yes")),
+                     model.names = FALSE,
+                     model.numbers = TRUE,
+                     dep.var.labels.include = FALSE,
+                     column.labels   = c("Models"),
+                     column.separate = c(3, 3)
+                     )
+```
+
+<div class = "answer"> 
+We can see that the naive estimate of effect of scandal on trust in police is statistically significant. However, when we include covariates and region effects, the estimates are no longer significant. We can notice that some covariates such as Satisfaction with democracy, Important that government is strong and ensures safety, Victim of any crime in past, Female and Years of education have statistically significant coefficients. The standard error shot up when we include interaction effect of D with political interest, which could mean that we induced a bias with the interaction term and hence challenges my hypothesis. 
+It can be concluded that there is some observed spillover effect on trust in police due to corruption scandal, but we should look at different covariates to further investigate the full effect of scandal on trust in police. We can say with some surity that corruption scadals may lead to political cynicism, but it needs to be further examined by looking at trust in various national and international institutions and using different covariates.
+</div>
+
+<div class = "answer"> 
+We will now plot a grpah to see the change in trust in police before and after the Barcenas scandal to get a visual representation of the effect of the scandal.
+</div>
+
+```{r}
+# Plot distributions of observations and smoothed Trust in Police
+ggplot(ESS4_df) + 
+  geom_histogram(aes(x=time), binwidth=1, color="darkgrey", fill="lightgrey")  +
+geom_smooth(aes(x=time, y=trstplc * (100/2.4), shape=as.factor(D_exposure_barcenas), color=as.factor(D_exposure_barcenas)), method="glm", formula= y~poly(x, 5), position="identity") + 
+  scale_x_continuous(name = "Days to/since scandal (Jan 31 = 0)") + 
+  scale_y_continuous(name = "Number of Respondents", position="right", sec.axis = sec_axis(~./(100/2.4), name = "Trust in Politicians")) + 
+  theme(legend.title=element_blank(), legend.position = "bottom") +
+  scale_colour_discrete(labels=c("Trust in Police (D=0) ", " Trust in Police (D=1)"))+
+  labs(title = "Figure 2: Change in trust in Police at Time of Bárcenas scandal", 
+       caption = "Note: Trust in police is measured on a 0-10 scale, where 10 indicates complete trust.\n The Trust in police graphs are estimated with a \nGLM quintic polynomial to resemble the authors' modelling.")
+```
+
+<div class = "answer"> 
+We can observe from the graph that while there is a visible drop in trust in police immediately after the scandal, this effect decays over time and the overall average  for months before and after the scadal remain relatively similar.
+</div>
+
+#Software and Packages
+
+<div class = "answer"> 
+The analysis was run under a macOS Mojave Version 10.14.6 using R studio version 1.3.1073.
+
+Hlavac, Marek (2018). stargazer: Well-Formatted Regression and Summary Statistics Tables. R package version 5.2.1. https://CRAN.R-project.org/package=stargazer
+
+H. Wickham. ggplot2: Elegant Graphics for Data Analysis. Springer-Verlag New York, 2016.
+
+Jan Marvin Garbuszus and Sebastian Jeworutzki (2021). readstata13: Import 'Stata' Data Files. R package version 0.10.0. https://CRAN.R-project.org/package=readstata13
+
+Hadley Wickham, Romain François, Lionel Henry and Kirill Müller (2021). dplyr: A Grammar of Data Manipulation. R package version 1.0.4. https://CRAN.R-project.org/package=dplyr
+
+Jacob Kaplan (2020). fastDummies: Fast Creation of Dummy (Binary) Columns and Rows from Categorical Variables. R package version 1.6.3. https://CRAN.R project.org/package=fastDummies
+
+Yihui Xie (2021). knitr: A General-Purpose Package for Dynamic Report Generation in R. R package version 1.31.
+
+Yihui Xie (2015) Dynamic Documents with R and knitr. 2nd edition. Chapman and Hall/CRC. ISBN 978-1498716963
+
+Yihui Xie (2014) knitr: A Comprehensive Tool for Reproducible Research in R. In Victoria Stodden, Friedrich Leisch and Roger D. Peng, editors, Implementing Reproducible Computational Research. Chapman and Hall/CRC. ISBN
+  978-1466561595
+
+Hao Zhu (2021). kableExtra: Construct Complex Table with 'kable' and Pipe Syntax. R package version 1.3.4. https://CRAN.R-project.org/package=kableExtra
+
+Matt Wand (2020). KernSmooth: Functions for Kernel Smoothing Supporting Wand & Jones (1995). R package version 2.23-17. https://CRAN.R-project.org/package=KernSmooth
+
+Bob Rudis, Ben Bolker and Jan Schulz (2017). ggalt: Extra Coordinate Systems, 'Geoms', Statistical Transformations, Scales and Fonts for 'ggplot2'. R package version 0.4.0. https://CRAN.R-project.org/package=ggalt
+  
+Jeffrey B. Arnold (2021). ggthemes: Extra Themes, Scales and Geoms for 'ggplot2'. R package version 4.2.4. https://CRAN.R-project.org/package=ggthemes
+
+Drew Dimmery (2016). rdd: Regression Discontinuity Estimation. R package version 0.57.
+https://CRAN.R-project.org/package=rdd
+
+Croissant Y, Millo G (2018). _Panel Data Econometrics with R: the plm package_. Wiley.
+
+Croissant Y, Millo G (2008). “Panel Data Econometrics in R: The plm Package.” _Journal of Statistical Software_,
+*27*(2), 1-43. doi: 10.18637/jss.v027.i02 (URL: https://doi.org/10.18637/jss.v027.i02).
+Hadley Wickham and Evan Miller (2021). haven: Import and Export 'SPSS', 'Stata' and 'SAS' Files. R package version 2.4.1. https://CRAN.R-project.org/package=haven
+  
+Garrett Grolemund, Hadley Wickham (2011). Dates and Times Made Easy with lubridate. Journal of Statistical Software, 40(3), 1-25. URL https://www.jstatsoft.org/v40/i03/.
+  
+Christian Kleiber and Achim Zeileis (2008). Applied Econometrics with R. New York: Springer-Verlag. ISBN 978-0-387-77316-2. URL https://CRAN.R-project.org/package=AER
+
+Lüdecke D (2021). _sjlabelled: Labelled Data Utility Functions (Version 1.1.8)_. doi: 10.5281/zenodo.1249215 (URL: https://doi.org/10.5281/zenodo.1249215), <URL: https://CRAN.R-project.org/package=sjlabelled>.
+</div>
+
+<div class = "answer"> 
+Bibliography
+
+Ares, M. & Hernández, E. (2017). The corrosive effect of corruption on trust in politicians:
+Evidence from a natural experiment. Research & Politics, 4(2), 2053168017714185. https://
+www.doi.org/10.1177%2F2053168017714185 
+
+Corral-Cumbreras, Marta & Powell, Tom. (2019). The effect of consumption of corruption-related news on political cynicism. Communication & Society. 32. 47-62. 10.15581/003.32.4.47-62. 
+
+</div>
