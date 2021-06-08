@@ -226,7 +226,7 @@ geom_smooth(aes(x=time, y=trstplt * (100/2.4), shape=as.factor(D_exposure_barcen
   theme(legend.title=element_blank(), legend.position = "bottom") +
   scale_colour_discrete(labels=c("Trust in Politicians (D=0) ", " Trust in Politicians (D=1)"))+
   labs(title = "Figure 2: Change in trust in Politicians at Time of Bárcenas scandal", 
-       caption = "Note: Trust in politicians is measured on a 0-10 scale, where 10 indicates complete trust.\n The Trust in Politicians graphs are estimated with a \nGLM quintic polynomial to resemble the authors' modelling.")
+       caption = "Note: Trust in politicians is measured on a 0-10 scale, where 10 indicates complete trust.")
 
 ```
 <div class = "answer"> 
@@ -331,7 +331,7 @@ colnames(RDD_df) <- c("Model-17 (Standard BW)", "Model-18 (Half BW)", "Model-19 
 
  
 
-# Kable table for RDD estimation
+# Create Kable table for RDD estimation
 RDD_df %>%
   kable(caption="Table A9: RDD summary results. Dependent variable: Trust in politicans", align = "l") %>%
   kable_styling(bootstrap_options = c("striped", "hover", "responsive"), full_width=F, position="left") %>%
@@ -511,11 +511,11 @@ ggplot(ESS4_df) +
   geom_histogram(aes(x=time), binwidth=1, color="darkgrey", fill="lightgrey")  +
 geom_smooth(aes(x=time, y=trstplc * (100/2.4), shape=as.factor(D_exposure_barcenas), color=as.factor(D_exposure_barcenas)), method="glm", formula= y~poly(x, 5), position="identity") + 
   scale_x_continuous(name = "Days to/since scandal (Jan 31 = 0)") + 
-  scale_y_continuous(name = "Number of Respondents", position="right", sec.axis = sec_axis(~./(100/2.4), name = "Trust in Politicians")) + 
+  scale_y_continuous(name = "Number of Respondents", position="right", sec.axis = sec_axis(~./(100/2.4), name = "Trust in Police")) + 
   theme(legend.title=element_blank(), legend.position = "bottom") +
   scale_colour_discrete(labels=c("Trust in Police (D=0) ", " Trust in Police (D=1)"))+
   labs(title = "Figure 2: Change in trust in Police at Time of Bárcenas scandal", 
-       caption = "Note: Trust in police is measured on a 0-10 scale, where 10 indicates complete trust.\n The Trust in police graphs are estimated with a \nGLM quintic polynomial to resemble the authors' modelling.")
+       caption = "Note: Trust in police is measured on a 0-10 scale, where 10 indicates complete trust")
 ```
 
 <div class = "answer"> 
